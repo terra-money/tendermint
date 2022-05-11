@@ -68,8 +68,47 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 	storeBatch := txi.store.NewBatch()
 	defer storeBatch.Close()
 
+	// temp record holder
+	var duplicateCheck = new(abci.TxResult)
+
 	for _, result := range b.Ops {
 		hash := types.Tx(result.Tx).Hash()
+
+		// consider the case of duplicate txs.
+		// if the current one under investigation is NOT OK, then we need to check
+		// whether there's a previously indexed tx.
+		// ONLY continue with indexing when previously indexed record is either
+		// - not successful; or
+		// - not found
+		if result.Result.IsErr() {
+			// check if this tx hash is already indexed
+			exists, existsErr := txi.store.Get(hash)
+
+			// existsErr is NOT nil if db op errored
+			// Not found is not an error
+			if existsErr != nil {
+				return existsErr
+			}
+
+			// if already indexed &&
+			if exists != nil {
+				unmarshalErr := proto.Unmarshal(exists, duplicateCheck)
+				if unmarshalErr != nil {
+					return unmarshalErr
+				}
+
+				successful := duplicateCheck.Result.Code == 0
+
+				// if previously indexed tx is successful, don't do anything and skip the loop
+				if successful {
+					continue
+				} else {
+					// otherwise go ahead and index it
+				}
+			}
+		}
+
+		duplicateCheck.Reset()
 
 		// index tx by events
 		err := txi.indexEvents(result, hash, storeBatch)
