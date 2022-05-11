@@ -97,7 +97,7 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 					return unmarshalErr
 				}
 
-				successful := duplicateCheck.Result.Code == 0
+				successful := duplicateCheck.Result.Code == abci.CodeTypeOK
 
 				// if previously indexed tx is successful, don't do anything and skip the loop
 				if successful {
