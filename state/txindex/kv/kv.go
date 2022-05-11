@@ -71,6 +71,10 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 	// temp record holder
 	var duplicateCheck = new(abci.TxResult)
 
+	// keep track of successful txs in this block in order to suppress latter ones being indexed.
+	// note that it deliberately does NOT cache unsuccessful ones
+	var successfulTxsInThisBlock = make(map[string]*abci.TxResult)
+
 	for _, result := range b.Ops {
 		hash := types.Tx(result.Tx).Hash()
 
@@ -81,6 +85,16 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 		// - not successful; or
 		// - not found
 		if result.Result.IsErr() {
+			// first check if this tx is present in the same block
+			// and we already checked it
+			previouslyCheckedRecord, alreadyChecked := successfulTxsInThisBlock[string(hash)]
+
+			// if already checked && previously checked record is successful, skip indexing (as it's already indexed)
+			// otherwise, keep going
+			if alreadyChecked && previouslyCheckedRecord.Result.Code == abci.CodeTypeOK {
+				continue
+			}
+
 			// check if this tx hash is already indexed
 			exists, existsErr := txi.store.Get(hash)
 
@@ -130,6 +144,11 @@ func (txi *TxIndex) AddBatch(b *txindex.Batch) error {
 		err = storeBatch.Set(hash, rawBytes)
 		if err != nil {
 			return err
+		}
+
+		// keep successful ones in local block-lived cache
+		if result.Result.IsOK() {
+			successfulTxsInThisBlock[string(hash)] = result
 		}
 	}
 
